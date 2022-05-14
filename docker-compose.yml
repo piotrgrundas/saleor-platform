@@ -3,7 +3,7 @@ version: "3.4"
 services:
   api:
     ports:
-      - 8000:8000
+      - 8001:8001
     build:
       context: ./saleor
       dockerfile: ./Dockerfile
@@ -15,59 +15,65 @@ services:
     depends_on:
       - db
       - redis
-      - jaeger
+      # - jaeger
     volumes:
       - ./saleor/saleor/:/app/saleor:Z
       - ./saleor/templates/:/app/templates:Z
       - ./saleor/tests/:/app/tests
       # shared volume between worker and api for media
       - saleor-media:/app/media
-    command: python manage.py runserver 0.0.0.0:8000
+    # command: python manage.py runserver 0.0.0.0:8000
+    command: ["gunicorn", "--bind", ":8001", "--workers", "4", "--worker-class", "saleor.asgi.gunicorn_worker.UvicornWorker", "saleor.asgi:application"]
     env_file:
       - common.env
       - backend.env
     environment:
-      - JAEGER_AGENT_HOST=jaeger
+      # - JAEGER_AGENT_HOST=jaeger
       - STOREFRONT_URL=http://localhost:3001/
-      - DASHBOARD_URL=http://localhost:9000/
-      - ALLOWED_HOSTS=localhost,api
+      - DASHBOARD_URL=http://localhost:8001/
+      - ALLOWED_HOSTS=localhost,api,172.17.0.1
+      - ENABLE_DJANGO_EXTENSIONS=True
 
-  react-storefront:
-    build:
-      context: ./react-storefront
-      dockerfile: ./Dockerfile.dev
-    ports:
-      - 3001:3001
-    restart: unless-stopped
-    networks:
-      - saleor-backend-tier
-    depends_on:
-      - api
-    volumes:
-      - ./react-storefront/:/app:cached
-      - /app/node_modules/
-    # Nginx is used to proxy SSR requests thru docker networking
-    command: sh -c '(nginx &) && pnpm dev'
-    environment:
-      - NEXT_PUBLIC_API_URI=http://localhost:8000/graphql/
-      - NEXT_PUBLIC_HOMEPAGE_MENU=navbar
+  # react-storefront:
+  #   build:
+  #     context: ./react-storefront
+  #     dockerfile: ./Dockerfile.dev
+  #   ports:
+  #     - 3001:3001
+  #   restart: unless-stopped
+  #   networks:
+  #     - saleor-backend-tier
+  #   depends_on:
+  #     - api
+  #   volumes:
+  #     - ./react-storefront/:/app:cached
+  #     - /app/node_modules/
+  #   # Nginx is used to proxy SSR requests thru docker networking
+  #   command: sh -c '(nginx &) && pnpm dev'
+  #   environment:
+  #     - NEXT_PUBLIC_API_URI=http://localhost:8000/graphql/
+  #     - NEXT_PUBLIC_HOMEPAGE_MENU=navbar
 
   dashboard:
     build:
       context: ./saleor-dashboard
       dockerfile: ./Dockerfile.dev
     ports:
-      - 9000:9000
+      - 9001:9001
     restart: unless-stopped
     volumes:
       - ./saleor-dashboard/:/app:cached
       - /app/node_modules/
-    command: npm start -- --host 0.0.0.0
+    command:  npm start
+    environment:
+      - API_URI=http://localhost:8001/graphql/
 
   db:
     image: library/postgres:13-alpine
+    # command: -p 5454
+    command: postgres -c 'max_connections=500' -p 5454
     ports:
-      - 5432:5432
+      - 5454:5454
     restart: unless-stopped
     networks:
       - saleor-backend-tier
@@ -80,8 +86,9 @@ services:
 
   redis:
     image: library/redis:5.0-alpine
+    command: --port 6363
     ports:
-      - 6379:6379
+      - 6363:6363
     restart: unless-stopped
     networks:
       - saleor-backend-tier
@@ -103,35 +110,35 @@ services:
       - backend.env
     depends_on:
       - redis
-      - mailhog
+      # - mailhog
     volumes:
       - ./saleor/saleor/:/app/saleor:Z,cached
       - ./saleor/templates/:/app/templates:Z,cached
       # shared volume between worker and api for media
       - saleor-media:/app/media
 
-  jaeger:
-    image: jaegertracing/all-in-one
-    ports:
-      - "5775:5775/udp"
-      - "6831:6831/udp"
-      - "6832:6832/udp"
-      - "5778:5778"
-      - "16686:16686"
-      - "14268:14268"
-      - "9411:9411"
-    restart: unless-stopped
-    networks:
-      - saleor-backend-tier
+  # jaeger:
+  #   image: jaegertracing/all-in-one
+  #   ports:
+  #     - "5775:5775/udp"
+  #     - "6831:6831/udp"
+  #     - "6832:6832/udp"
+  #     - "5778:5778"
+  #     - "16686:16686"
+  #     - "14268:14268"
+  #     - "9411:9411"
+  #   restart: unless-stopped
+  #   networks:
+  #     - saleor-backend-tier
 
-  mailhog:
-    image: mailhog/mailhog
-    ports:
-      - 1025:1025 # smtp server
-      - 8025:8025 # web ui. Visit http://localhost:8025/ to check emails
-    restart: unless-stopped
-    networks:
-      - saleor-backend-tier
+  # mailhog:
+  #   image: mailhog/mailhog
+  #   ports:
+  #     - 1025:1025 # smtp server
+  #     - 8025:8025 # web ui. Visit http://localhost:8025/ to check emails
+  #   restart: unless-stopped
+  #   networks:
+  #     - saleor-backend-tier
 
 volumes:
   saleor-db:
